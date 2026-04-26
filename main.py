@@ -24,8 +24,7 @@ import plotly.express as px
 st.set_page_config(
     page_title="Word Frequency Analyzer",
     page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
 # Custom styling
@@ -87,17 +86,187 @@ def load_models_and_data():
 # Load models on startup
 dataset_loader, pre_trained_nb, pre_trained_rf, category_profiles, overall_profile = load_models_and_data()
 
-def main():
-    st.markdown('<h1 class="main-header">Final Project for Computational Science and Machine Learning</h1>', unsafe_allow_html=True)
-    st.write("Advanced text analysis with machine learning capabilities")
+# ============================================================================
+# MONKEYTYPE-STYLE VISUALIZATION COMPONENTS
+# ============================================================================
 
-    # Sidebar navigation
-    with st.sidebar:
-        st.title("Navigation")
-        page = st.radio("Select Feature", [
-            "📈 Frequency Analysis",
-            "🤖 Text Classification"
-        ])
+def generate_monkeytype_html(text: str, entity_spans: list = None, current_index: int = 0) -> str:
+    """
+    Generate HTML/CSS for Monkeytype-style word visualization.
+    
+    Args:
+        text: The input text to visualize
+        entity_spans: List of (start, end, label) tuples for entity highlighting
+        current_index: Current character index (cursor position)
+    
+    Returns:
+        HTML string with styled text visualization
+    """
+    entity_spans = entity_spans or []
+    
+    # Entity color mapping
+    entity_colors = {
+        "PERSON": "#FF6B6B",
+        "LOCATION": "#4ECDC4",
+        "ORGANIZATION": "#45B7D1",
+        "DATE": "#FFA500",
+        "TIME": "#FF6B9D",
+        "MONEY": "#95E77D",
+        "PERCENT": "#A8E6CF",
+        "FACILITY": "#FFD93D",
+        "GPE": "#6BCB77",
+        "PRODUCT": "#FF8FB1",
+        "EVENT": "#9B59B6",
+        "LAW": "#3498DB",
+        "LANGUAGE": "#E74C3C",
+        "DEFAULT": "#888888"
+    }
+    
+    # Build character to entity mapping
+    char_to_entity = {}
+    for start, end, label in entity_spans:
+        for i in range(start, end):
+            char_to_entity[i] = label
+    
+    # HTML structure
+    html = """
+    <div style="
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        padding: 2rem;
+        border-radius: 12px;
+        font-family: 'Courier New', monospace;
+        font-size: 1.1em;
+        line-height: 1.8;
+        color: #b0b0b0;
+        border: 2px solid #0f3460;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        word-break: break-word;
+        max-width: 100%;
+    ">
+    """
+    
+    char_idx = 0
+    for char in text:
+        if char == '\n':
+            html += '<br>'
+            char_idx += 1
+            continue
+        
+        # Get entity label for this character
+        entity_label = char_to_entity.get(char_idx, None)
+        entity_color = entity_colors.get(entity_label, entity_colors["DEFAULT"]) if entity_label else "#888888"
+        
+        # Determine character state styling
+        if char == ' ':
+            # Space character
+            html += '<span style="margin-right: 0.25em;"></span>'
+        else:
+            # Regular character
+            opacity = "1.0"
+            font_weight = "normal"
+            
+            # Character state styling
+            if char_idx == current_index:
+                # Current character (cursor)
+                style = f"""
+                    color: #00ff00;
+                    background: rgba(0, 255, 0, 0.2);
+                    border-bottom: 2px solid #00ff00;
+                    font-weight: bold;
+                    animation: blink-cursor 1s infinite;
+                """
+            elif entity_label:
+                # Character with entity (highlight)
+                style = f"""
+                    color: {entity_color};
+                    text-shadow: 0 0 8px rgba({convert_hex_to_rgb(entity_color)}, 0.4);
+                    font-weight: 600;
+                """
+            else:
+                # Regular character
+                style = f"""
+                    color: #a0a0a0;
+                    opacity: 0.7;
+                """
+            
+            html += f'<span style="{style}">{char}</span>'
+        
+        char_idx += 1
+    
+    html += """
+    </div>
+    
+    <style>
+        @keyframes blink-cursor {
+            0%, 49% { opacity: 1; }
+            50%, 100% { opacity: 0.3; }
+        }
+    </style>
+    """
+    
+    return html
+
+def convert_hex_to_rgb(hex_color: str) -> str:
+    """Convert hex color to RGB string format"""
+    hex_color = hex_color.lstrip('#')
+    return f"{int(hex_color[0:2], 16)}, {int(hex_color[2:4], 16)}, {int(hex_color[4:6], 16)}"
+
+def mock_ner(text: str) -> list:
+    """
+    Mock NER function that returns entity spans.
+    In a real implementation, this would use a NER model.
+    
+    Returns:
+        List of (start_char, end_char, entity_label) tuples
+    """
+    import re
+    entities = []
+    
+    # Simple pattern-based NER for demonstration
+    # Date patterns (simple)
+    date_pattern = r'\b\d{1,2}/\d{1,2}/\d{4}\b|\b\d{4}\b'
+    for match in re.finditer(date_pattern, text):
+        entities.append((match.start(), match.end(), 'DATE'))
+    
+    # Capitalized words (potential entities)
+    cap_pattern = r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b'
+    for match in re.finditer(cap_pattern, text):
+        # Avoid overlap with dates
+        if not any(s <= match.start() < match.end() <= e for s, e, _ in entities):
+            if len(match.group()) > 3:  # Only longer proper nouns
+                entities.append((match.start(), match.end(), 'PERSON'))
+    
+    return sorted(entities, key=lambda x: x[0])
+
+# ============================================================================
+
+def clear_text():
+    st.session_state.ner_textarea = ""
+    st.session_state.ner_analyzed = False
+    st.session_state.ner_text_input = ""
+    st.session_state.ner_entities = []
+    st.session_state.ner_classification = None
+
+def analyze_text(text_input, enable_classification):
+    if text_input.strip():
+            st.session_state.ner_analyzed = True
+            st.session_state.ner_text_input = text_input
+            st.session_state.ner_entities = mock_ner(text_input)
+            
+            # Text classification
+            if enable_classification:
+                processor = TextProcessor()
+                tokens_processed = processor.preprocess(text_input)
+                predicted_class, scores = pre_trained_nb.predict(tokens_processed)
+                st.session_state.ner_classification = {
+                    'predicted_class': predicted_class,
+                    'scores': scores
+                }
+            else:
+                st.warning("⚠️ Please enter some text")
+
+def main():
+    st.markdown('<h1 class="main-header">Final Project for Special Topics In AI</h1>', unsafe_allow_html=True)
 
     # Initialize session state
     if 'text_input' not in st.session_state:
@@ -105,11 +274,88 @@ def main():
     if 'tokens' not in st.session_state:
         st.session_state.tokens = []
 
-    # Page routing
-    if page == "📈 Frequency Analysis":
-        page_frequency_analysis()
-    elif page == "🤖 Text Classification":
-        page_text_classification()
+    NER()
+
+def NER():
+    """Enhanced NER with Entity Recognition, Text Classification, and Frequency Analysis"""
+    from enhanced_ner import render_enhanced_ner, mock_ner
+    
+    st.header("🏷️ Named Entity Recognition + Text Classification + Frequency Analysis")
+    st.write("Comprehensive text analysis combining NER, classification, and word frequency insights")
+    
+    # Initialize session state
+    if 'ner_analyzed' not in st.session_state:
+        st.session_state.ner_analyzed = False
+    if 'ner_text_input' not in st.session_state:
+        st.session_state.ner_text_input = ""
+    if 'ner_entities' not in st.session_state:
+        st.session_state.ner_entities = []
+    if 'ner_classification' not in st.session_state:
+        st.session_state.ner_classification = None
+    
+    # Input section
+    col1, col2 = st.columns([2.5, 1.5])
+    
+    with col1:
+        st.subheader("📝 Text Input")
+        input_method = st.radio("Input method:", ["Text Input", "Upload File"], horizontal=True)
+        
+        text_input = ""
+        if input_method == "Text Input":
+            text_input = st.text_area(
+                "Paste your text:",
+                height=200,
+                placeholder="Enter text for comprehensive analysis...",
+                key="ner_textarea"
+            )
+            st.caption(f"Characters: {len(text_input)}/500")
+        else:
+            uploaded_file = st.file_uploader("Upload text file", type=['txt', 'pdf'], key="ner_uploader")
+            if uploaded_file:
+                file_handler = FileHandler()
+                text_input = file_handler.read_file(uploaded_file)[:500]
+                st.success("✅ File loaded")
+    
+    with col2:
+        st.subheader("⚙️ Options")
+        enable_classification = st.checkbox("Enable Text Classification", value=True)
+        enable_frequency = st.checkbox("Enable Frequency Analysis", value=True)
+
+    
+    # Action buttons
+    col_btn1, col_btn2, col_btn3 = st.columns(3)
+    with col_btn1:
+        st.button("🔍 Analyze", use_container_width=True, on_click=analyze_text(text_input, enable_classification))
+    with col_btn2:
+        reset_button = st.button("🔄 Reset", use_container_width=True, on_click=clear_text)
+    with col_btn3:
+        pass
+
+    
+    if reset_button:
+        st.rerun()
+    
+    # Render results
+    if st.session_state.ner_analyzed and st.session_state.ner_text_input:
+        st.divider()
+        
+        # Prepare classification data
+        classification_data = st.session_state.ner_classification if enable_classification else None
+        
+        # Render enhanced NER with all features
+        render_enhanced_ner(
+            text=st.session_state.ner_text_input,
+            entities=st.session_state.ner_entities,
+            predicted_class=classification_data['predicted_class'] if classification_data else None,
+            scores=classification_data['scores'] if classification_data else None,
+            category_profiles=category_profiles,
+            overall_profile=overall_profile,
+
+        ) if enable_classification else render_enhanced_ner(
+            text=st.session_state.ner_text_input,
+            entities=st.session_state.ner_entities,
+            
+        )
 
 def page_frequency_analysis():
     st.header("📈 Frequency Analysis & Statistics")
