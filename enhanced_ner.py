@@ -1,42 +1,156 @@
-"""
-Enhanced NER with Text Classification and Frequency Analysis
-Combines Monkeytype visualization, text classification, and word frequency analysis
-"""
-
 import streamlit as st
 from typing import List, Tuple, Dict
 from collections import Counter
 import plotly.graph_objects as go
 import re
+from collections import defaultdict
 
-from monkeytype_ui import (
-    render_monkeytype_visualization,
-    render_entity_legend,
-    initialize_ner_session_state,
-)
+
 from core.text_processor import TextProcessor
 from core.frequency_counter import FrequencyCounter
 
 
-def mock_ner(text: str) -> List[Tuple[int, int, str]]:
-    """Simple NER for demo - extracts dates and capitalized words."""
-    entities = []
-    
-    # Date patterns
-    date_pattern = r'\b\d{1,2}/\d{1,2}/\d{4}\b|\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\b'
-    for match in re.finditer(date_pattern, text):
-        entities.append((match.start(), match.end(), 'DATE'))
-    
-    # Capitalized words (proper nouns)
-    cap_pattern = r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b'
-    for match in re.finditer(cap_pattern, text):
-        # Avoid overlap with dates
-        if not any(s <= match.start() < match.end() <= e for s, e, _ in entities):
-            if len(match.group()) > 2:
-                entities.append((match.start(), match.end(), 'PERSON'))
-    
-    return sorted(entities, key=lambda x: x[0])
+def render_ner_text(text: str, entities: List[Tuple[int, int, str]]):
+    """
+    Inline NER renderer with:
+    - larger text
+    - hover zoom effect
+    - entity tooltip
+    """
 
+    ENTITY_COLORS = {
+        "PERSON": "#FF6B6B",
+        "LOCATION": "#4ECDC4",
+        "ORGANIZATION": "#45B7D1",
+        "DATE": "#FFA500",
+        "TIME": "#FF6B9D",
+        "MONEY": "#95E77D",
+        "PERCENT": "#A8E6CF",
+        "FACILITY": "#FFD93D",
+        "GPE": "#6BCB77",
+        "PRODUCT": "#FF8FB1",
+        "EVENT": "#9B59B6",
+        "LAW": "#3498DB",
+        "LANGUAGE": "#E74C3C",
+    }
+
+    # normalize + sort
+    spans = []
+    for start, end, label in entities:
+        try:
+            spans.append((int(start), int(end), label))
+        except:
+            continue
+
+    spans = sorted(spans, key=lambda x: x[0])
+
+    output = ""
+    last_idx = 0
+
+    for start, end, label in spans:
+        if start > last_idx:
+            output += text[last_idx:start]
+
+        color = ENTITY_COLORS.get(label, "#888")
+        entity_word = text[start:end]
+
+        output += f"""
+        <span class="ner-entity" data-label="{label}" style="
+            background-color: {color};
+            color: white;
+            padding: 10px 15px;
+            margin-right: 6px;
+            margin-left: 6px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 1.15em;
+            display: inline-block;
+            transition: all 0.15s ease-in-out;
+            cursor: pointer;
+        ">
+            {entity_word}
+        </span>
+        """
+
+        last_idx = end
+
+    output += text[last_idx:]
+
+    st.markdown(
+        f"""
+        <style>
+        .ner-entity {{
+            position: relative;
+        }}
+
+        /* Hover zoom effect */
+        .ner-entity:hover {{
+            transform: scale(1.08);
+            filter: brightness(1.1);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+            z-index: 10;
+        }}
+
+        /* Tooltip */
+        .ner-entity:hover::after {{
+            content: attr(data-label);
+            position: absolute;
+            top: -28px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #222;
+            color: white;
+            padding: 4px 8px;
+            font-size: 0.75em;
+            border-radius: 6px;
+            white-space: nowrap;
+            z-index: 999;
+            opacity: 1;
+        }}
+
+        /* Smooth text rendering */
+        .ner-container {{
+            font-size: 1.2em;
+            line-height: 2.0;
+        }}
+        </style>
+
+        <div class="ner-container">
+            {output}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+def render_ner_entities(entities: List[tuple], text: str):
+    """
+    Clean dropdown-style entity viewer (no tables, no dataframe UI)
+    """
+
+    st.subheader("🏷️ Detected Entities")
+
+    grouped = defaultdict(list)
+
+    # build groups safely
+    for start, end, label in entities:
+        try:
+            entity_text = text[int(start):int(end)]
+            grouped[label].append(entity_text)
+        except:
+            continue
+
+    # render dropdowns
+    for label, items in grouped.items():
+        unique_items = sorted(set(items))
+
+        with st.expander(f"{label} ({len(unique_items)})", expanded=False):
+
+            # simple bullet list instead of table
+            for item in unique_items[:50]:
+                st.markdown(f"- {item}")
+
+            if len(unique_items) > 50:
+                st.caption(f"... and {len(unique_items) - 50} more")
 
 def render_ner_text_classification(
     text: str,
@@ -122,7 +236,6 @@ def render_ner_text_classification(
         
         st.info("These words are more common in the predicted category (high lift):")
         st.dataframe(top_evidence, use_container_width=True, hide_index=True)
-
 
 def render_frequency_analysis(text: str, top_n: int = 20) -> None:
     """
@@ -286,7 +399,6 @@ def render_frequency_analysis(text: str, top_n: int = 20) -> None:
         st.write(f"Type-Token Ratio: **{ttr:.4f}** ({ttr*100:.2f}% unique words)")
         st.write(f"**Interpretation**: {explanation}")
 
-
 def render_enhanced_ner(
     text: str,
     entities: List[Tuple[int, int, str]],
@@ -308,31 +420,24 @@ def render_enhanced_ner(
         overall_profile: Overall frequency profile
         theme: "dark" or "light"
     """
-    
     # Main NER Visualization
-    st.subheader("📝 Named Entity Recognition - Monkeytype Visualization")
+    st.subheader("📝 Named Entity Recognition")
     
     col_viz, col_stats = st.columns([3, 1])
     
+
     with col_viz:
-        render_monkeytype_visualization(
-            text,
-            entity_spans=entities,
-            current_index=0,
-            theme=theme
-        )
-    
+        render_ner_text(text, entities)
+
     with col_stats:
         st.subheader("📊 NER Stats")
         st.metric("Characters", len(text))
         st.metric("Words", len(text.split()))
         st.metric("Entities", len(set((s, e, l) for s, e, l in entities)))
     
-    # Entity Legend
-    if entities:
-        st.divider()
-        st.subheader("🏷️ Detected Entities")
-        render_entity_legend(entities, text)
+
+
+    render_ner_entities(entities, text)
     
     # Text Classification
     if predicted_class and scores and category_profiles and overall_profile:
