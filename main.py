@@ -62,6 +62,7 @@ def load_models_and_data():
     }
     overall_profile = {"counter": overall_counter, "total": sum(overall_counter.values())}
 
+
     # Train Naive Bayes on ALL datasets combined
     nb_classifier = NaiveBayesTextClassifier()
     if documents:
