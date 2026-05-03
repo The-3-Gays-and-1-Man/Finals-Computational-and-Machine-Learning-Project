@@ -20,13 +20,13 @@ def render_ner_text(text: str, entities: List[Tuple[int, int, str]]):
 
     ENTITY_COLORS = {
         "PERSON": "#FF6B6B",
-        "LOCATION": "#4ECDC4",
-        "ORGANIZATION": "#45B7D1",
+        "GPE": "#4ECDC4",
+        "MISC": "#45B7D1",
         "DATE": "#FFA500",
         "TIME": "#FF6B9D",
         "MONEY": "#95E77D",
         "PERCENT": "#A8E6CF",
-        "FACILITY": "#FFD93D",
+        "ORG": "#FFD93D",
         "GPE": "#6BCB77",
         "PRODUCT": "#FF8FB1",
         "EVENT": "#9B59B6",

@@ -8,6 +8,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 import json
 import pandas as pd
 from typing import Dict
+
+import pdfplumber
 from core.text_processor import TextProcessor
 from core.frequency_counter import FrequencyCounter
 from ml_models.naive_bayes import NaiveBayesTextClassifier
@@ -24,6 +26,7 @@ import plotly.express as px
 from ml_models.ner_pipeline import HybridNERPipeline
 from app import ner_main
 from enhanced_ner import render_enhanced_ner
+import re
 # Page configuration
 st.set_page_config(
     page_title="Word Frequency Analyzer",
@@ -92,6 +95,12 @@ def load_models_and_data():
 # Load models on startup
 dataset_loader, pre_trained_nb, pre_trained_rf, category_profiles, overall_profile = load_models_and_data()
 
+def clean_extracted_text(text: str) -> str:
+    text = re.sub(r'\s+([.,!?])', r'\1', text)  # fix space before punctuation
+    text = re.sub(r'\s+', ' ', text)            # normalize spaces
+    return text.strip()
+
+
 def normalize_entities(entities, text):
     fixed = []
 
@@ -117,6 +126,23 @@ def normalize_entities(entities, text):
             fixed.append(e)
 
     return fixed
+
+def extract_text_from_pdf(pdf_file) -> str:
+    """Extract text from PDF using pdfplumber (better for NER)"""
+    try:
+        text = ""
+
+        with pdfplumber.open(pdf_file) as pdf:
+            for page in pdf.pages:
+                extracted = page.extract_text()
+                if extracted:
+                    text += extracted + "\n"
+
+        return clean_extracted_text(text)
+
+    except Exception as e:
+        st.error(f"Error reading PDF: {str(e)}")
+        return ""
 
 def main():
 
@@ -166,11 +192,37 @@ def ner_main():
     # ================= INPUT =================
     st.subheader("📝 Input Text")
 
-    text_input = st.text_area(
-        "Enter text:",
-        height=150,
-        placeholder="Type or paste text here..."
-    )
+    input_tab1, input_tab2 = st.tabs(["📄 Text Input", "📑 PDF Upload"])
+    
+    text_input = ""
+    
+    with input_tab1:
+        text_input = st.text_area(
+            "Enter text:",
+            height=150,
+            placeholder="Type or paste text here...",
+            key="text_input_area"
+        )
+    
+    with input_tab2:
+        uploaded_file = st.file_uploader(
+            "Upload a PDF file:",
+            type="pdf",
+            help="Select a PDF file to extract text from"
+        )
+        
+        if uploaded_file is not None:
+            with st.spinner("Extracting text from PDF..."):
+                text_input = extract_text_from_pdf(uploaded_file)
+                if text_input:
+                    st.success(f"✅ Extracted {len(text_input)} characters from PDF")
+                    st.text_area(
+                        "Extracted text:",
+                        value=text_input,
+                        height=150,
+                        disabled=True,
+                        key="pdf_extracted_text"
+                    )
 
     # ================= ANALYZE BUTTON =================
     if st.button("🚀 Analyze", type="primary", use_container_width=True):
